@@ -228,6 +228,7 @@ fun main(args: Array<String>) = PluginSimilarityCli()
     .subcommands(
         FingerprintCommand(),
         CompareCommand(),
-        ChurnCommand()
+        ChurnCommand(),
+        SearchCommand()
     )
     .main(args)
