@@ -216,10 +216,16 @@ class BytecodeAnalyzer {
          * Generate a hash of instruction n-grams (3-grams) to represent method behavior pattern
          */
         fun getInstructionPattern(): String? {
-            if (instructions.size < 3) return null
+            // Return special marker for empty methods to prevent false positives
+            if (instructions.isEmpty()) return hashString("EMPTY_METHOD")
+            if (instructions.size < 3) return hashString("TRIVIAL_METHOD:${instructions.joinToString("-")}")
+            
+            // Filter out very common boilerplate patterns
+            val filteredInstructions = filterBoilerplate(instructions)
+            if (filteredInstructions.size < 3) return hashString("BOILERPLATE_ONLY:${instructions.size}")
             
             // Create 3-grams of opcodes and hash them
-            val trigrams = instructions.windowed(3, 1)
+            val trigrams = filteredInstructions.windowed(3, 1)
                 .map { it.joinToString("-") }
                 .joinToString(",")
             
@@ -227,10 +233,35 @@ class BytecodeAnalyzer {
         }
         
         /**
+         * Filters out common boilerplate instruction sequences
+         * to reduce false positives from standard initialization patterns
+         */
+        private fun filterBoilerplate(instrs: List<Int>): List<Int> {
+            // Common patterns to filter:
+            // - Simple ALOAD, RETURN sequences (getters)
+            // - Constructor boilerplate (ALOAD, INVOKESPECIAL, RETURN)
+            // Keep only if method has substantive logic
+            
+            if (instrs.size <= 5) {
+                // Check if it's just a simple getter/setter pattern
+                val isSimpleGetter = instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.GETFIELD, Opcodes.ARETURN)) ||
+                                     instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.GETFIELD, Opcodes.IRETURN))
+                val isSimpleSetter = instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.PUTFIELD, Opcodes.RETURN))
+                
+                if (isSimpleGetter || isSimpleSetter) {
+                    return emptyList()  // Filter out trivial getters/setters
+                }
+            }
+            
+            return instrs
+        }
+        
+        /**
          * Generate histogram of instruction opcodes to represent overall method complexity
          */
         fun getInstructionHistogram(): Map<Int, Int>? {
-            if (instructions.isEmpty()) return null
+            // Return marker for empty methods instead of null
+            if (instructions.isEmpty()) return mapOf(-1 to 1)  // Special marker: -1 opcode
             return instructions.groupingBy { it }.eachCount()
         }
     }

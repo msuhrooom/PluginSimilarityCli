@@ -98,6 +98,21 @@ class SimilarityCalculator {
      * This captures similar behavior even when function names differ
      */
     private fun computeBehavioralSimilarity(dna1: CodeDNA, dna2: CodeDNA): Double {
+        // If both have no behavioral data (e.g., all trivial methods filtered), 
+        // return neutral score to not penalize structural/API match
+        val hasBehavioralData1 = dna1.behavioral.instructionPatternHashes.isNotEmpty()
+        val hasBehavioralData2 = dna2.behavioral.instructionPatternHashes.isNotEmpty()
+        
+        if (!hasBehavioralData1 && !hasBehavioralData2) {
+            // Both lack behavioral data - return neutral (not 0, not 1)
+            return 0.5  // Neutral: doesn't boost or penalize overall similarity
+        }
+        
+        if (!hasBehavioralData1 || !hasBehavioralData2) {
+            // One has behavioral data, one doesn't - low similarity
+            return 0.1
+        }
+        
         // Compare instruction pattern hashes (3-grams of bytecode opcodes)
         val patternJaccard = jaccardSimilarity(
             dna1.behavioral.instructionPatternHashes,
@@ -110,8 +125,41 @@ class SimilarityCalculator {
             dna2.behavioral.instructionHistograms
         )
         
+        // Calculate method complexity factor to reduce weight of trivial methods
+        val complexityFactor = computeComplexityFactor(
+            dna1.behavioral.instructionHistograms,
+            dna2.behavioral.instructionHistograms
+        )
+        
         // Weighted: patterns more important than overall histograms
-        return (patternJaccard * 0.7) + (histogramSimilarity * 0.3)
+        // Apply complexity factor to reduce impact of simple getters/setters
+        val rawSimilarity = (patternJaccard * 0.7) + (histogramSimilarity * 0.3)
+        return rawSimilarity * complexityFactor
+    }
+    
+    /**
+     * Computes complexity factor based on average method size
+     * Reduces similarity weight for trivial methods (getters/setters)
+     */
+    private fun computeComplexityFactor(
+        histograms1: Map<String, Map<Int, Int>>,
+        histograms2: Map<String, Map<Int, Int>>
+    ): Double {
+        if (histograms1.isEmpty() || histograms2.isEmpty()) return 1.0
+        
+        // Calculate average instructions per method
+        val avgSize1 = histograms1.values.map { it.values.sum() }.average()
+        val avgSize2 = histograms2.values.map { it.values.sum() }.average()
+        val avgSize = (avgSize1 + avgSize2) / 2
+        
+        // Scale factor: trivial methods (< 5 instructions) get reduced weight
+        return when {
+            avgSize < 3 -> 0.3   // Very trivial (simple getter/setter)
+            avgSize < 5 -> 0.5   // Trivial
+            avgSize < 10 -> 0.7  // Simple
+            avgSize < 20 -> 0.9  // Moderate
+            else -> 1.0          // Complex - full weight
+        }
     }
     
     /**
@@ -122,7 +170,8 @@ class SimilarityCalculator {
         histograms1: Map<String, Map<Int, Int>>,
         histograms2: Map<String, Map<Int, Int>>
     ): Double {
-        if (histograms1.isEmpty() && histograms2.isEmpty()) return 1.0
+        // Empty histograms should not match - prevents false positives
+        if (histograms1.isEmpty() && histograms2.isEmpty()) return 0.0  // Changed from 1.0
         if (histograms1.isEmpty() || histograms2.isEmpty()) return 0.0
         
         // Aggregate all histograms into one
@@ -151,14 +200,24 @@ class SimilarityCalculator {
         }
         
         val denominator = kotlin.math.sqrt(magnitude1) * kotlin.math.sqrt(magnitude2)
-        return if (denominator > 0) dotProduct / denominator else 0.0
+        val cosineSimilarity = if (denominator > 0) dotProduct / denominator else 0.0
+        
+        // Apply size disparity penalty to prevent false matches
+        // Example: 1 method with 100 instructions vs 10 methods with 10 each
+        val size1 = histograms1.size
+        val size2 = histograms2.size
+        val sizeRatio = kotlin.math.min(size1, size2).toDouble() / kotlin.math.max(size1, size2).toDouble()
+        
+        // Reduce similarity if method counts differ significantly
+        return cosineSimilarity * sizeRatio
     }
     
     /**
      * Computes Jaccard similarity coefficient: |A ∩ B| / |A ∪ B|
      */
     private fun <T> jaccardSimilarity(set1: Set<T>, set2: Set<T>): Double {
-        if (set1.isEmpty() && set2.isEmpty()) return 1.0
+        // Empty sets match for structural/API components (classes, methods, etc.)
+        if (set1.isEmpty() && set2.isEmpty()) return 1.0  // Restored
         if (set1.isEmpty() || set2.isEmpty()) return 0.0
         
         val intersection = set1.intersect(set2).size.toDouble()
