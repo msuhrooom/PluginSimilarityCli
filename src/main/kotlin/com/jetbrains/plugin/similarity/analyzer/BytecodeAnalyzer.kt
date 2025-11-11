@@ -6,7 +6,14 @@ import java.security.MessageDigest
 /**
  * Analyzes bytecode to extract structural information for Code DNA generation
  */
-class BytecodeAnalyzer {
+class BytecodeAnalyzer(private val useFuzzyMode: Boolean = false) {
+    
+    /**
+     * Semantic opcode categories for fuzzy mode
+     */
+    private enum class SemanticOpcode {
+        LOAD, STORE, INVOKE, ARITH, COMPARE, RETURN, FIELD, ARRAY, CONTROL, NEW, CAST, OTHER
+    }
     
     data class ClassInfo(
         val className: String,
@@ -35,12 +42,12 @@ class BytecodeAnalyzer {
     
     fun analyzeClass(bytecode: ByteArray): ClassInfo {
         val reader = ClassReader(bytecode)
-        val visitor = ClassAnalyzerVisitor()
+        val visitor = ClassAnalyzerVisitor(useFuzzyMode)
         reader.accept(visitor, ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES)
         return visitor.toClassInfo()
     }
     
-    private class ClassAnalyzerVisitor : ClassVisitor(Opcodes.ASM9) {
+    private class ClassAnalyzerVisitor(private val useFuzzyMode: Boolean) : ClassVisitor(Opcodes.ASM9) {
         private var className: String = ""
         private var superClass: String? = null
         private val interfaces = mutableListOf<String>()
@@ -92,7 +99,7 @@ class BytecodeAnalyzer {
                 if (isExternalReference(it)) externalReferences.add(it)
             }
             
-            val visitor = MethodAnalyzerVisitor(externalReferences)
+            val visitor = MethodAnalyzerVisitor(externalReferences, useFuzzyMode)
             pendingMethodVisitors.add(methodInfo to visitor)
             return visitor
         }
@@ -136,9 +143,10 @@ class BytecodeAnalyzer {
     }
     
     private class MethodAnalyzerVisitor(
-        private val externalReferences: MutableSet<String>
+        private val externalReferences: MutableSet<String>,
+        private val useFuzzyMode: Boolean
     ) : MethodVisitor(Opcodes.ASM9) {
-        private val instructions = mutableListOf<Int>()
+        private val instructions = mutableListOf<String>()
         
         override fun visitMethodInsn(
             opcode: Int,
@@ -147,7 +155,7 @@ class BytecodeAnalyzer {
             descriptor: String,
             isInterface: Boolean
         ) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
             if (isExternalReference(owner)) {
                 externalReferences.add("$owner.$name$descriptor")
             }
@@ -162,14 +170,14 @@ class BytecodeAnalyzer {
             name: String,
             descriptor: String
         ) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
             if (isExternalReference(owner)) {
                 externalReferences.add("$owner.$name")
             }
         }
         
         override fun visitTypeInsn(opcode: Int, type: String) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
             if (isExternalReference(type)) {
                 externalReferences.add(type)
             }
@@ -177,39 +185,117 @@ class BytecodeAnalyzer {
         
         // Capture all instruction opcodes for behavioral analysis
         override fun visitInsn(opcode: Int) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
         }
         
         override fun visitIntInsn(opcode: Int, operand: Int) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
         }
         
         override fun visitVarInsn(opcode: Int, varIndex: Int) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
         }
         
         override fun visitJumpInsn(opcode: Int, label: Label) {
-            instructions.add(opcode)
+            instructions.add(normalizeOpcode(opcode))
         }
         
         override fun visitLdcInsn(value: Any?) {
-            instructions.add(Opcodes.LDC)
+            instructions.add(normalizeOpcode(Opcodes.LDC))
         }
         
         override fun visitIincInsn(varIndex: Int, increment: Int) {
-            instructions.add(Opcodes.IINC)
+            instructions.add(normalizeOpcode(Opcodes.IINC))
         }
         
         override fun visitTableSwitchInsn(min: Int, max: Int, dflt: Label, vararg labels: Label) {
-            instructions.add(Opcodes.TABLESWITCH)
+            instructions.add(normalizeOpcode(Opcodes.TABLESWITCH))
         }
         
         override fun visitLookupSwitchInsn(dflt: Label, keys: IntArray, labels: Array<out Label>) {
-            instructions.add(Opcodes.LOOKUPSWITCH)
+            instructions.add(normalizeOpcode(Opcodes.LOOKUPSWITCH))
         }
         
         override fun visitMultiANewArrayInsn(descriptor: String, numDimensions: Int) {
-            instructions.add(Opcodes.MULTIANEWARRAY)
+            instructions.add(normalizeOpcode(Opcodes.MULTIANEWARRAY))
+        }
+        
+        /**
+         * Normalize an opcode to either its exact value or semantic category
+         */
+        private fun normalizeOpcode(opcode: Int): String {
+            if (!useFuzzyMode) {
+                return opcode.toString()
+            }
+            
+            return when (opcode) {
+                // All loads → LOAD
+                Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.FLOAD, Opcodes.DLOAD, Opcodes.LLOAD,
+                Opcodes.IALOAD, Opcodes.LALOAD, Opcodes.FALOAD, Opcodes.DALOAD, Opcodes.AALOAD,
+                Opcodes.BALOAD, Opcodes.CALOAD, Opcodes.SALOAD
+                -> SemanticOpcode.LOAD.name
+                
+                // All stores → STORE
+                Opcodes.ASTORE, Opcodes.ISTORE, Opcodes.FSTORE, Opcodes.DSTORE, Opcodes.LSTORE,
+                Opcodes.IASTORE, Opcodes.LASTORE, Opcodes.FASTORE, Opcodes.DASTORE, Opcodes.AASTORE,
+                Opcodes.BASTORE, Opcodes.CASTORE, Opcodes.SASTORE
+                -> SemanticOpcode.STORE.name
+                
+                // All method invocations → INVOKE
+                Opcodes.INVOKEVIRTUAL, Opcodes.INVOKESPECIAL, Opcodes.INVOKESTATIC,
+                Opcodes.INVOKEINTERFACE, Opcodes.INVOKEDYNAMIC
+                -> SemanticOpcode.INVOKE.name
+                
+                // All arithmetic operations → ARITH
+                Opcodes.IADD, Opcodes.ISUB, Opcodes.IMUL, Opcodes.IDIV, Opcodes.IREM,
+                Opcodes.LADD, Opcodes.LSUB, Opcodes.LMUL, Opcodes.LDIV, Opcodes.LREM,
+                Opcodes.FADD, Opcodes.FSUB, Opcodes.FMUL, Opcodes.FDIV, Opcodes.FREM,
+                Opcodes.DADD, Opcodes.DSUB, Opcodes.DMUL, Opcodes.DDIV, Opcodes.DREM,
+                Opcodes.INEG, Opcodes.LNEG, Opcodes.FNEG, Opcodes.DNEG,
+                Opcodes.ISHL, Opcodes.LSHL, Opcodes.ISHR, Opcodes.LSHR, Opcodes.IUSHR, Opcodes.LUSHR,
+                Opcodes.IAND, Opcodes.LAND, Opcodes.IOR, Opcodes.LOR, Opcodes.IXOR, Opcodes.LXOR,
+                Opcodes.IINC
+                -> SemanticOpcode.ARITH.name
+                
+                // All comparisons → COMPARE
+                Opcodes.IFEQ, Opcodes.IFNE, Opcodes.IFLT, Opcodes.IFGE, Opcodes.IFGT, Opcodes.IFLE,
+                Opcodes.IF_ICMPEQ, Opcodes.IF_ICMPNE, Opcodes.IF_ICMPLT, Opcodes.IF_ICMPGE,
+                Opcodes.IF_ICMPGT, Opcodes.IF_ICMPLE, Opcodes.IF_ACMPEQ, Opcodes.IF_ACMPNE,
+                Opcodes.LCMP, Opcodes.FCMPL, Opcodes.FCMPG, Opcodes.DCMPL, Opcodes.DCMPG,
+                Opcodes.IFNULL, Opcodes.IFNONNULL
+                -> SemanticOpcode.COMPARE.name
+                
+                // All returns → RETURN
+                Opcodes.IRETURN, Opcodes.LRETURN, Opcodes.FRETURN, Opcodes.DRETURN,
+                Opcodes.ARETURN, Opcodes.RETURN
+                -> SemanticOpcode.RETURN.name
+                
+                // All field access → FIELD
+                Opcodes.GETSTATIC, Opcodes.PUTSTATIC, Opcodes.GETFIELD, Opcodes.PUTFIELD
+                -> SemanticOpcode.FIELD.name
+                
+                // Array operations (length, etc.) → ARRAY
+                Opcodes.ARRAYLENGTH, Opcodes.NEWARRAY, Opcodes.ANEWARRAY, Opcodes.MULTIANEWARRAY
+                -> SemanticOpcode.ARRAY.name
+                
+                // Control flow → CONTROL
+                Opcodes.GOTO, Opcodes.JSR, Opcodes.RET, Opcodes.TABLESWITCH, Opcodes.LOOKUPSWITCH
+                -> SemanticOpcode.CONTROL.name
+                
+                // Object creation → NEW
+                Opcodes.NEW
+                -> SemanticOpcode.NEW.name
+                
+                // Type operations → CAST
+                Opcodes.CHECKCAST, Opcodes.INSTANCEOF,
+                Opcodes.I2L, Opcodes.I2F, Opcodes.I2D, Opcodes.L2I, Opcodes.L2F, Opcodes.L2D,
+                Opcodes.F2I, Opcodes.F2L, Opcodes.F2D, Opcodes.D2I, Opcodes.D2L, Opcodes.D2F,
+                Opcodes.I2B, Opcodes.I2C, Opcodes.I2S
+                -> SemanticOpcode.CAST.name
+                
+                // Everything else → OTHER
+                else -> SemanticOpcode.OTHER.name
+            }
         }
         
         /**
@@ -236,20 +322,35 @@ class BytecodeAnalyzer {
          * Filters out common boilerplate instruction sequences
          * to reduce false positives from standard initialization patterns
          */
-        private fun filterBoilerplate(instrs: List<Int>): List<Int> {
+        private fun filterBoilerplate(instrs: List<String>): List<String> {
             // Common patterns to filter:
             // - Simple ALOAD, RETURN sequences (getters)
             // - Constructor boilerplate (ALOAD, INVOKESPECIAL, RETURN)
             // Keep only if method has substantive logic
             
             if (instrs.size <= 5) {
-                // Check if it's just a simple getter/setter pattern
-                val isSimpleGetter = instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.GETFIELD, Opcodes.ARETURN)) ||
-                                     instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.GETFIELD, Opcodes.IRETURN))
-                val isSimpleSetter = instrs.containsAll(listOf(Opcodes.ALOAD, Opcodes.PUTFIELD, Opcodes.RETURN))
-                
-                if (isSimpleGetter || isSimpleSetter) {
-                    return emptyList()  // Filter out trivial getters/setters
+                // In fuzzy mode, check semantic categories; otherwise check exact opcodes
+                if (useFuzzyMode) {
+                    val isSimpleGetter = instrs.containsAll(listOf("LOAD", "FIELD", "RETURN"))
+                    val isSimpleSetter = instrs.containsAll(listOf("LOAD", "FIELD", "RETURN"))
+                    if (isSimpleGetter || isSimpleSetter) {
+                        return emptyList()
+                    }
+                } else {
+                    val aload = Opcodes.ALOAD.toString()
+                    val getfield = Opcodes.GETFIELD.toString()
+                    val putfield = Opcodes.PUTFIELD.toString()
+                    val areturn = Opcodes.ARETURN.toString()
+                    val ireturn = Opcodes.IRETURN.toString()
+                    val returnVoid = Opcodes.RETURN.toString()
+                    
+                    val isSimpleGetter = instrs.containsAll(listOf(aload, getfield, areturn)) ||
+                                         instrs.containsAll(listOf(aload, getfield, ireturn))
+                    val isSimpleSetter = instrs.containsAll(listOf(aload, putfield, returnVoid))
+                    
+                    if (isSimpleGetter || isSimpleSetter) {
+                        return emptyList()
+                    }
                 }
             }
             
@@ -262,7 +363,8 @@ class BytecodeAnalyzer {
         fun getInstructionHistogram(): Map<Int, Int>? {
             // Return marker for empty methods instead of null
             if (instructions.isEmpty()) return mapOf(-1 to 1)  // Special marker: -1 opcode
-            return instructions.groupingBy { it }.eachCount()
+            // Convert instruction strings to hashcodes for histogram keys
+            return instructions.groupingBy { it.hashCode() }.eachCount()
         }
     }
     

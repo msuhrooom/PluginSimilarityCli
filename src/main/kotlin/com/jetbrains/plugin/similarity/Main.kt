@@ -46,12 +46,20 @@ class FingerprintCommand : CliktCommand(
         help = "Pretty-print the JSON output"
     ).flag(default = false)
     
+    private val fuzzy by option(
+        "--fuzzy",
+        help = "Use fuzzy mode with semantic opcode normalization for better refactoring tolerance"
+    ).flag(default = false)
+    
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     override fun run() {
         echo("Analyzing artifact: ${input.name}")
+        if (fuzzy) {
+            echo("Mode: Fuzzy (semantic normalization enabled)")
+        }
         
         try {
-            val parser = ArtifactParser()
+            val parser = ArtifactParser(useFuzzyMode = fuzzy)
             val codeDNA = parser.parseArtifact(input)
             
             val json = if (pretty) {
@@ -97,6 +105,11 @@ class CompareCommand : CliktCommand(
     private val verbose by option(
         "-v", "--verbose",
         help = "Show detailed comparison metrics"
+    ).flag(default = false)
+    
+    private val fuzzy by option(
+        "--fuzzy",
+        help = "Generate fingerprints in fuzzy mode if needed (for on-the-fly fingerprinting)"
     ).flag(default = false)
     
     override fun run() {

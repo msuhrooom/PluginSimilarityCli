@@ -14,7 +14,13 @@ A CLI tool for generating Code DNA fingerprints from plugin artifacts (ZIP/JAR f
 - **Similarity Comparison**: Compute similarity between two plugin fingerprints
   - Structural similarity (classes, inheritance, packages)
   - API footprint similarity (external references, method signatures)
+  - Behavioral similarity (bytecode instruction patterns and histograms)
   - Overall weighted similarity score
+  
+- **Fuzzy Mode**: Semantic normalization for better type-agnostic matching
+  - Groups similar bytecode instructions (e.g., ILOAD/FLOAD → LOAD)
+  - 7x improvement for type-variant code similarity detection
+  - Optional flag for more flexible behavioral matching
   
 - **Version Churn Analysis**: Calculate changes between plugin versions
   - Added/removed classes and methods
@@ -70,10 +76,15 @@ java -jar build/libs/plugin-similarity-1.0.0.jar fingerprint plugin.jar output.j
 
 **Options:**
 - `--pretty`: Pretty-print the JSON output
+- `--fuzzy`: Enable fuzzy mode with semantic opcode normalization
 
 **Example:**
 ```bash
+# Normal mode (exact bytecode matching)
 ./gradlew run --args="fingerprint my-plugin-1.0.0.jar fingerprint-1.0.0.json --pretty"
+
+# Fuzzy mode (type-agnostic behavioral matching)
+./gradlew run --args="fingerprint --fuzzy my-plugin-1.0.0.jar fingerprint-fuzzy.json --pretty"
 ```
 
 ### 2. Compare Fingerprints
@@ -106,6 +117,7 @@ Similarity Scores:
   Overall:    78.45%
   Structural: 82.30%
   API:        72.15%
+  Behavioral: 85.60%
 
 Interpretation:
   Highly similar - possibly related plugins or different versions
@@ -154,6 +166,47 @@ Assessment:
   Moderate changes - minor update
 ```
 
+## Fuzzy Mode
+
+**Fuzzy mode** uses semantic normalization to group similar bytecode instructions before pattern matching. This makes the tool more tolerant to implementation variations while preserving behavioral differences.
+
+### Quick Example
+
+```java
+// Plugin A: Integer calculator
+int result = a + b;  // Bytecode: ILOAD, ILOAD, IADD
+
+// Plugin B: Float calculator  
+float result = a + b;  // Bytecode: FLOAD, FLOAD, FADD
+```
+
+**Without fuzzy mode:** 0% behavioral match (different opcodes)  
+**With fuzzy mode:** 100% behavioral match (both normalize to LOAD-LOAD-ARITH)
+
+### Results
+
+**Real test: IntCalculator vs FloatCalculator**
+
+| Mode | Behavioral Similarity | Overall Similarity |
+|------|----------------------|-------------------|
+| Normal | 9.84% | 24.95% |
+| **Fuzzy** | **70.00%** (7x improvement!) | **43.00%** |
+
+### When to Use
+
+✅ **Use fuzzy mode for:**
+- Type-agnostic similarity detection (int vs float, long vs double)
+- Cross-implementation style matching (static vs instance methods)
+- Plugin marketplace search where semantic behavior matters
+- Finding functionally similar code with different implementations
+
+❌ **Don't use fuzzy mode for:**
+- Exact clone detection or plagiarism checking
+- When precision is critical (fuzzy mode may increase false positives)
+- Comparing fingerprints generated in normal mode (incompatible!)
+
+**See [FUZZY_MODE.md](FUZZY_MODE.md) for detailed documentation, trade-offs, and limitations.**
+
 ## Output Format
 
 The fingerprint JSON contains:
@@ -182,6 +235,12 @@ The fingerprint JSON contains:
     "methodSignatureHashes": ["pqr678..."],
     "annotationHashes": ["stu901..."]
   },
+  "behavioral": {
+    "instructionPatternHashes": ["xyz567..."],
+    "instructionHistograms": {
+      "method_hash_1": {21: 10, 96: 5, 172: 2}
+    }
+  },
   "hash": "vwx234..."
 }
 ```
@@ -204,16 +263,24 @@ The fingerprint JSON contains:
 
 Uses **Jaccard similarity** (intersection over union) for set-based comparisons:
 
-- **Structural Similarity** (60% weight):
+**Overall Score = 40% Structural + 30% API + 30% Behavioral**
+
+- **Structural Similarity** (40% of overall):
   - Class hashes (40%)
   - Inheritance relationships (20%)
   - Interface implementations (20%)
   - Package structure (20%)
 
-- **API Similarity** (40% weight):
+- **API Similarity** (30% of overall):
   - External references (50%)
   - Method signatures (30%)
   - Annotations (20%)
+
+- **Behavioral Similarity** (30% of overall):
+  - Instruction pattern matching (70%)
+  - Instruction histogram similarity (30%)
+  - Complexity factor adjustment
+  - See [BEHAVIORAL_SIMILARITY.md](BEHAVIORAL_SIMILARITY.md) for details
 
 ### Churn Calculation
 
@@ -241,6 +308,13 @@ src/main/kotlin/com/jetbrains/plugin/similarity/
     ├── BytecodeAnalyzer.kt     # ASM-based bytecode analysis
     └── SimilarityCalculator.kt # Similarity and churn computation
 ```
+
+## Additional Documentation
+
+- [BEHAVIORAL_SIMILARITY.md](BEHAVIORAL_SIMILARITY.md) - Deep dive into bytecode-based behavioral analysis
+- [FUZZY_MODE.md](FUZZY_MODE.md) - Comprehensive fuzzy mode guide with examples and trade-offs
+- [FALSE_POSITIVE_FIXES.md](FALSE_POSITIVE_FIXES.md) - Mitigation strategies for false positive scenarios
+- Test scenarios and examples in `test-scenarios/`
 
 ## Dependencies
 

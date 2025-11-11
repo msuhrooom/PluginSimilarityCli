@@ -7,9 +7,9 @@ import java.util.zip.ZipFile
 /**
  * Parses plugin artifacts (ZIP/JAR) and generates Code DNA fingerprints
  */
-class ArtifactParser {
+class ArtifactParser(private val useFuzzyMode: Boolean = false) {
     
-    private val bytecodeAnalyzer = BytecodeAnalyzer()
+    private val bytecodeAnalyzer = BytecodeAnalyzer(useFuzzyMode)
     
     fun parseArtifact(artifactFile: File): CodeDNA {
         require(artifactFile.exists()) { "Artifact file does not exist: ${artifactFile.absolutePath}" }
