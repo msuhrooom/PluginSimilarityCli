@@ -16,9 +16,10 @@ class SimilarityCalculator {
     fun computeSimilarity(dna1: CodeDNA, dna2: CodeDNA): SimilarityScore {
         val structuralSimilarity = computeStructuralSimilarity(dna1, dna2)
         val apiSimilarity = computeApiSimilarity(dna1, dna2)
+        val behavioralSimilarity = computeBehavioralSimilarity(dna1, dna2)
         
-        // Weighted average: 60% structural, 40% API
-        val overallSimilarity = (structuralSimilarity * 0.6) + (apiSimilarity * 0.4)
+        // Weighted average: 40% structural, 30% API, 30% behavioral
+        val overallSimilarity = (structuralSimilarity * 0.4) + (apiSimilarity * 0.3) + (behavioralSimilarity * 0.3)
         
         val details = SimilarityDetails(
             commonClasses = intersectionSize(dna1.structure.classHashes, dna2.structure.classHashes),
@@ -36,6 +37,7 @@ class SimilarityCalculator {
             overall = overallSimilarity,
             structural = structuralSimilarity,
             api = apiSimilarity,
+            behavioral = behavioralSimilarity,
             details = details
         )
     }
@@ -89,6 +91,67 @@ class SimilarityCalculator {
         return (externalRefJaccard * 0.5) + 
                (methodSigJaccard * 0.3) + 
                (annotationJaccard * 0.2)
+    }
+    
+    /**
+     * Computes behavioral similarity based on instruction patterns
+     * This captures similar behavior even when function names differ
+     */
+    private fun computeBehavioralSimilarity(dna1: CodeDNA, dna2: CodeDNA): Double {
+        // Compare instruction pattern hashes (3-grams of bytecode opcodes)
+        val patternJaccard = jaccardSimilarity(
+            dna1.behavioral.instructionPatternHashes,
+            dna2.behavioral.instructionPatternHashes
+        )
+        
+        // Compare instruction histogram similarity
+        val histogramSimilarity = computeHistogramSimilarity(
+            dna1.behavioral.instructionHistograms,
+            dna2.behavioral.instructionHistograms
+        )
+        
+        // Weighted: patterns more important than overall histograms
+        return (patternJaccard * 0.7) + (histogramSimilarity * 0.3)
+    }
+    
+    /**
+     * Computes similarity between instruction histograms across all methods
+     * Uses cosine similarity on the aggregate histogram
+     */
+    private fun computeHistogramSimilarity(
+        histograms1: Map<String, Map<Int, Int>>,
+        histograms2: Map<String, Map<Int, Int>>
+    ): Double {
+        if (histograms1.isEmpty() && histograms2.isEmpty()) return 1.0
+        if (histograms1.isEmpty() || histograms2.isEmpty()) return 0.0
+        
+        // Aggregate all histograms into one
+        val aggregate1 = histograms1.values.flatMap { it.entries }
+            .groupBy({ it.key }, { it.value })
+            .mapValues { it.value.sum() }
+        
+        val aggregate2 = histograms2.values.flatMap { it.entries }
+            .groupBy({ it.key }, { it.value })
+            .mapValues { it.value.sum() }
+        
+        // Compute cosine similarity
+        val allOpcodes = aggregate1.keys + aggregate2.keys
+        
+        var dotProduct = 0.0
+        var magnitude1 = 0.0
+        var magnitude2 = 0.0
+        
+        for (opcode in allOpcodes) {
+            val count1 = aggregate1[opcode]?.toDouble() ?: 0.0
+            val count2 = aggregate2[opcode]?.toDouble() ?: 0.0
+            
+            dotProduct += count1 * count2
+            magnitude1 += count1 * count1
+            magnitude2 += count2 * count2
+        }
+        
+        val denominator = kotlin.math.sqrt(magnitude1) * kotlin.math.sqrt(magnitude2)
+        return if (denominator > 0) dotProduct / denominator else 0.0
     }
     
     /**

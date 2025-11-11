@@ -22,7 +22,9 @@ class BytecodeAnalyzer {
         val name: String,
         val descriptor: String,
         val signature: String,
-        val access: Int
+        val access: Int,
+        val instructionPattern: String? = null,
+        val instructionHistogram: Map<Int, Int>? = null
     )
     
     data class FieldInfo(
@@ -46,6 +48,7 @@ class BytecodeAnalyzer {
         private val fields = mutableListOf<FieldInfo>()
         private val annotations = mutableListOf<String>()
         private val externalReferences = mutableSetOf<String>()
+        private val pendingMethodVisitors = mutableListOf<Pair<MethodInfo, MethodAnalyzerVisitor>>()
         
         override fun visit(
             version: Int,
@@ -82,14 +85,16 @@ class BytecodeAnalyzer {
             exceptions: Array<out String>?
         ): MethodVisitor {
             val methodSig = "$name$descriptor"
-            methods.add(MethodInfo(name, descriptor, methodSig, access))
+            val methodInfo = MethodInfo(name, descriptor, methodSig, access)
             
             // Extract type references from method descriptor
             extractTypesFromDescriptor(descriptor).forEach {
                 if (isExternalReference(it)) externalReferences.add(it)
             }
             
-            return MethodAnalyzerVisitor(externalReferences)
+            val visitor = MethodAnalyzerVisitor(externalReferences)
+            pendingMethodVisitors.add(methodInfo to visitor)
+            return visitor
         }
         
         override fun visitField(
@@ -109,20 +114,31 @@ class BytecodeAnalyzer {
             return null
         }
         
-        fun toClassInfo() = ClassInfo(
-            className = className,
-            superClass = superClass,
-            interfaces = interfaces,
-            methods = methods,
-            fields = fields,
-            annotations = annotations,
-            externalReferences = externalReferences
-        )
+        fun toClassInfo(): ClassInfo {
+            // Finalize method info with instruction patterns
+            val finalizedMethods = pendingMethodVisitors.map { (methodInfo, visitor) ->
+                methodInfo.copy(
+                    instructionPattern = visitor.getInstructionPattern(),
+                    instructionHistogram = visitor.getInstructionHistogram()
+                )
+            }
+            
+            return ClassInfo(
+                className = className,
+                superClass = superClass,
+                interfaces = interfaces,
+                methods = finalizedMethods,
+                fields = fields,
+                annotations = annotations,
+                externalReferences = externalReferences
+            )
+        }
     }
     
     private class MethodAnalyzerVisitor(
         private val externalReferences: MutableSet<String>
     ) : MethodVisitor(Opcodes.ASM9) {
+        private val instructions = mutableListOf<Int>()
         
         override fun visitMethodInsn(
             opcode: Int,
@@ -131,6 +147,7 @@ class BytecodeAnalyzer {
             descriptor: String,
             isInterface: Boolean
         ) {
+            instructions.add(opcode)
             if (isExternalReference(owner)) {
                 externalReferences.add("$owner.$name$descriptor")
             }
@@ -145,15 +162,76 @@ class BytecodeAnalyzer {
             name: String,
             descriptor: String
         ) {
+            instructions.add(opcode)
             if (isExternalReference(owner)) {
                 externalReferences.add("$owner.$name")
             }
         }
         
         override fun visitTypeInsn(opcode: Int, type: String) {
+            instructions.add(opcode)
             if (isExternalReference(type)) {
                 externalReferences.add(type)
             }
+        }
+        
+        // Capture all instruction opcodes for behavioral analysis
+        override fun visitInsn(opcode: Int) {
+            instructions.add(opcode)
+        }
+        
+        override fun visitIntInsn(opcode: Int, operand: Int) {
+            instructions.add(opcode)
+        }
+        
+        override fun visitVarInsn(opcode: Int, varIndex: Int) {
+            instructions.add(opcode)
+        }
+        
+        override fun visitJumpInsn(opcode: Int, label: Label) {
+            instructions.add(opcode)
+        }
+        
+        override fun visitLdcInsn(value: Any?) {
+            instructions.add(Opcodes.LDC)
+        }
+        
+        override fun visitIincInsn(varIndex: Int, increment: Int) {
+            instructions.add(Opcodes.IINC)
+        }
+        
+        override fun visitTableSwitchInsn(min: Int, max: Int, dflt: Label, vararg labels: Label) {
+            instructions.add(Opcodes.TABLESWITCH)
+        }
+        
+        override fun visitLookupSwitchInsn(dflt: Label, keys: IntArray, labels: Array<out Label>) {
+            instructions.add(Opcodes.LOOKUPSWITCH)
+        }
+        
+        override fun visitMultiANewArrayInsn(descriptor: String, numDimensions: Int) {
+            instructions.add(Opcodes.MULTIANEWARRAY)
+        }
+        
+        /**
+         * Generate a hash of instruction n-grams (3-grams) to represent method behavior pattern
+         */
+        fun getInstructionPattern(): String? {
+            if (instructions.size < 3) return null
+            
+            // Create 3-grams of opcodes and hash them
+            val trigrams = instructions.windowed(3, 1)
+                .map { it.joinToString("-") }
+                .joinToString(",")
+            
+            return hashString(trigrams)
+        }
+        
+        /**
+         * Generate histogram of instruction opcodes to represent overall method complexity
+         */
+        fun getInstructionHistogram(): Map<Int, Int>? {
+            if (instructions.isEmpty()) return null
+            return instructions.groupingBy { it }.eachCount()
         }
     }
     

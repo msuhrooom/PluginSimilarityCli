@@ -11,6 +11,7 @@ data class CodeDNA(
     val metadata: PluginMetadata,
     val structure: StructureFingerprint,
     val apiFootprint: ApiFootprint,
+    val behavioral: BehavioralFingerprint,
     val hash: String
 )
 
@@ -39,6 +40,12 @@ data class ApiFootprint(
     val annotationHashes: Set<String>
 )
 
+@Serializable
+data class BehavioralFingerprint(
+    val instructionPatternHashes: Set<String>,
+    val instructionHistograms: Map<String, Map<Int, Int>>
+)
+
 /**
  * Represents the similarity score between two Code DNA fingerprints
  */
@@ -46,6 +53,7 @@ data class SimilarityScore(
     val overall: Double,
     val structural: Double,
     val api: Double,
+    val behavioral: Double,
     val details: SimilarityDetails
 )
 

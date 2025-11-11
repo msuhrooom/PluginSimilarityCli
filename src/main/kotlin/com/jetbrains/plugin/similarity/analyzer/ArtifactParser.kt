@@ -92,6 +92,21 @@ class ArtifactParser {
             .map { BytecodeAnalyzer.hashString(it) }
             .toSet()
         
+        // Generate behavioral fingerprint from instruction patterns
+        val instructionPatternHashes = classes.flatMap { classInfo ->
+            classInfo.methods.mapNotNull { method -> method.instructionPattern }
+        }.toSet()
+        
+        // Collect instruction histograms keyed by method signature hash
+        val instructionHistograms = classes.flatMap { classInfo ->
+            classInfo.methods.mapNotNull { method ->
+                method.instructionHistogram?.let { histogram ->
+                    val methodKey = BytecodeAnalyzer.hashString("${classInfo.className}.${method.signature}")
+                    methodKey to histogram
+                }
+            }
+        }.toMap()
+        
         val totalMethods = classes.sumOf { it.methods.size }
         val totalFields = classes.sumOf { it.fields.size }
         
@@ -117,13 +132,19 @@ class ArtifactParser {
             annotationHashes = annotationHashes
         )
         
+        val behavioral = BehavioralFingerprint(
+            instructionPatternHashes = instructionPatternHashes,
+            instructionHistograms = instructionHistograms
+        )
+        
         // Generate overall hash
-        val overallHash = generateOverallHash(structure, apiFootprint)
+        val overallHash = generateOverallHash(structure, apiFootprint, behavioral)
         
         return CodeDNA(
             metadata = metadata,
             structure = structure,
             apiFootprint = apiFootprint,
+            behavioral = behavioral,
             hash = overallHash
         )
     }
@@ -136,7 +157,8 @@ class ArtifactParser {
     
     private fun generateOverallHash(
         structure: StructureFingerprint,
-        apiFootprint: ApiFootprint
+        apiFootprint: ApiFootprint,
+        behavioral: BehavioralFingerprint
     ): String {
         val combinedData = buildString {
             append(structure.classHashes.sorted().joinToString(","))
@@ -146,6 +168,8 @@ class ArtifactParser {
             append(apiFootprint.externalReferences.sorted().joinToString(","))
             append("|")
             append(apiFootprint.methodSignatureHashes.sorted().joinToString(","))
+            append("|")
+            append(behavioral.instructionPatternHashes.sorted().joinToString(","))
         }
         return BytecodeAnalyzer.hashString(combinedData)
     }

@@ -31,6 +31,10 @@ class LSHIndexTest {
                 methodSignatureHashes = methodHashes,
                 annotationHashes = emptySet()
             ),
+            behavioral = BehavioralFingerprint(
+                instructionPatternHashes = emptySet(),
+                instructionHistograms = emptyMap()
+            ),
             hash = hash
         )
     }

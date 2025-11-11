@@ -118,6 +118,7 @@ class CompareCommand : CliktCommand(
             echo("  Overall:    ${formatPercentage(similarity.overall)}")
             echo("  Structural: ${formatPercentage(similarity.structural)}")
             echo("  API:        ${formatPercentage(similarity.api)}")
+            echo("  Behavioral: ${formatPercentage(similarity.behavioral)}")
             echo()
             
             if (verbose) {

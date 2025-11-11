@@ -33,6 +33,10 @@ class SimilarityCalculatorTest {
                 methodSignatureHashes = methodHashes,
                 annotationHashes = emptySet()
             ),
+            behavioral = BehavioralFingerprint(
+                instructionPatternHashes = emptySet(),
+                instructionHistograms = emptyMap()
+            ),
             hash = "test-hash"
         )
     }
@@ -69,8 +73,9 @@ class SimilarityCalculatorTest {
         
         val result = calculator.computeSimilarity(dna1, dna2)
         
-        // Should be very low (empty package structure adds some noise)
-        assertTrue(result.overall < 0.5, "Different plugins should have low similarity")
+        // Should be very low (empty behavioral patterns = 100% match but weighted at 30%)
+        // With new weights (40% structural, 30% API, 30% behavioral), empty behavioral adds noise
+        assertTrue(result.overall < 0.7, "Different plugins should have low similarity")
     }
     
     @Test
@@ -226,10 +231,10 @@ class SimilarityCalculatorTest {
         val result2 = calculator.computeSimilarity(empty, nonEmpty)
         
         // Both empty should be considered similar
-        assertTrue(result1.overall > 0.5)
+        assertTrue(result1.overall > 0.7, "Both empty should have high similarity")
         
         // One empty vs non-empty should be different
-        assertTrue(result2.overall < 0.5)
+        assertTrue(result2.overall < 0.7, "Empty vs non-empty should have lower similarity")
     }
     
     @Test
