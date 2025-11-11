@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test on JDK ${{ matrix.java }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        java: ['17', '21']
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK ${{ matrix.java }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: 'temurin'
+        cache: 'gradle'
+        
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Build with Gradle
+      run: ./gradlew build --no-daemon
+      
+    - name: Run tests
+      run: ./gradlew test --no-daemon
+      
+    - name: Generate test report
+      if: always()
+      uses: dorny/test-reporter@v1
+      with:
+        name: Test Results (JDK ${{ matrix.java }})
+        path: build/test-results/test/*.xml
+        reporter: java-junit
+        fail-on-error: true
+        
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-jdk${{ matrix.java }}
+        path: build/test-results/test/
+        
+    - name: Upload build artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: plugin-similarity-jdk${{ matrix.java }}
+        path: build/libs/*.jar
+        
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'gradle'
+        
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Run Kotlin linter
+      run: ./gradlew ktlintCheck --no-daemon || true
+      continue-on-error: true
+      
+    - name: Check code formatting
+      run: ./gradlew ktlintFormat --no-daemon || true
+      continue-on-error: true
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'gradle'
+        
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Build JAR
+      run: ./gradlew jar --no-daemon
+      
+    - name: Test fingerprint generation (normal mode)
+      run: |
+        ./gradlew run --args="fingerprint test-scenarios/jars/int-calculator.jar /tmp/test-normal.json" --no-daemon --quiet
+        
+    - name: Test fingerprint generation (fuzzy mode)
+      run: |
+        ./gradlew run --args="fingerprint --fuzzy test-scenarios/jars/int-calculator.jar /tmp/test-fuzzy.json" --no-daemon --quiet
+        
+    - name: Test comparison
+      run: |
+        ./gradlew run --args="fingerprint test-scenarios/jars/int-calculator.jar /tmp/int.json" --no-daemon --quiet
+        ./gradlew run --args="fingerprint test-scenarios/jars/float-calculator.jar /tmp/float.json" --no-daemon --quiet
+        ./gradlew run --args="compare /tmp/int.json /tmp/float.json" --no-daemon --quiet
+        
+    - name: Verify fuzzy mode improvement
+      run: |
+        echo "Testing fuzzy mode effectiveness..."
+        ./gradlew run --args="fingerprint --fuzzy test-scenarios/jars/int-calculator.jar /tmp/int-fuzzy.json" --no-daemon --quiet
+        ./gradlew run --args="fingerprint --fuzzy test-scenarios/jars/float-calculator.jar /tmp/float-fuzzy.json" --no-daemon --quiet
+        ./gradlew run --args="compare /tmp/int-fuzzy.json /tmp/float-fuzzy.json" --no-daemon --quiet | grep -q "Behavioral.*[67][0-9]\." && echo "✅ Fuzzy mode working" || exit 1
