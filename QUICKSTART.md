@@ -74,7 +74,10 @@ If you have two versions of the same plugin:
 
 ## Next Steps
 
-- See [README.md](README.md) for detailed documentation
+- See [README.md](README.md) for detailed documentation including:
+  - **Search command** for fast similarity search across large databases
+  - **Fuzzy mode** for type-agnostic behavioral matching
+  - **LSH indexing** for scalable plugin discovery
 - Check [examples/EXAMPLES.md](examples/EXAMPLES.md) for more use cases
 - Use `./gradlew run --args="--help"` to see all available commands
 

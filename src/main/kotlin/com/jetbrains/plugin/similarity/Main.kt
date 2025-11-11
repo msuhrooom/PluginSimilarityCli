@@ -48,7 +48,7 @@ class FingerprintCommand : CliktCommand(
     
     private val fuzzy by option(
         "--fuzzy",
-        help = "Use fuzzy mode with semantic opcode normalization for better refactoring tolerance"
+        help = "Use fuzzy mode with semantic opcode normalization for type-agnostic behavioral matching"
     ).flag(default = false)
     
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)

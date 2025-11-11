@@ -57,16 +57,21 @@ J(A, B) = |A ∩ B| / |A ∪ B|
 ```
 
 Components:
-- **Structural** (60% weight):
+- **Structural** (40% weight):
   - Class hashes (40%)
   - Inheritance (20%)
   - Interfaces (20%)
   - Package distribution via cosine similarity (20%)
 
-- **API Footprint** (40% weight):
+- **API Footprint** (30% weight):
   - External references (50%)
   - Method signatures (30%)
   - Annotations (20%)
+
+- **Behavioral** (30% weight):
+  - Instruction pattern matching (70%)
+  - Instruction histogram similarity (30%)
+  - Complexity factor adjustment
 
 ##### Churn Analysis
 

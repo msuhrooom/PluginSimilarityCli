@@ -166,6 +166,43 @@ Assessment:
   Moderate changes - minor update
 ```
 
+### 4. Search for Similar Plugins
+
+Fast similarity search across a database of plugins using LSH (Locality-Sensitive Hashing):
+
+```bash
+# Using Gradle
+./gradlew run --args="search query.json database-directory/"
+
+# Using JAR
+java -jar build/libs/plugin-similarity-1.0.0.jar search query.json database-directory/
+```
+
+**Options:**
+- `-t, --threshold`: Minimum similarity threshold (default: 0.7)
+- `-k, --top-k`: Return top K results (default: 10)
+- `--exact`: Compute exact Jaccard for candidates (slower but accurate)
+- `-v, --verbose`: Show detailed timing and statistics
+
+**Example:**
+```bash
+./gradlew run --args="search my-plugin.json fingerprints/ --threshold 0.6 --top-k 5 --exact"
+```
+
+**Output:**
+```
+Query: my-plugin-1.0.0.jar
+
+Searching for similar plugins...
+Top 5 similar plugins (threshold: 60%):
+────────────────────────────────────────────────
+1. similar-plugin-2.0.0.jar              78.45%
+2. related-plugin-1.5.0.jar              65.32%
+3. another-plugin-3.0.0.jar              61.89%
+```
+
+**Performance:** LSH-based search is 26-65x faster than linear comparison for large databases (1,000+ plugins). See [BENCHMARKS.md](BENCHMARKS.md) for details.
+
 ## Fuzzy Mode
 
 **Fuzzy mode** uses semantic normalization to group similar bytecode instructions before pattern matching. This makes the tool more tolerant to implementation variations while preserving behavioral differences.
@@ -290,30 +327,38 @@ Computes the delta between versions:
 
 ## Use Cases
 
-1. **Marketplace Integration**: Flag suspicious or copied plugins
+1. **Marketplace Integration**: Flag suspicious or copied plugins with fast LSH-based search
 2. **Version Tracking**: Monitor changes between plugin releases
-3. **Duplicate Detection**: Find similar plugins across the marketplace
+3. **Duplicate Detection**: Find similar plugins across large marketplaces (1,000+ plugins)
 4. **API Surface Analysis**: Understand plugin dependencies and API usage
 5. **Quality Assurance**: Detect unusual changes or patterns
+6. **Similarity Search**: Fast approximate nearest neighbor search for plugin recommendations
 
 ## Architecture
 
 ```
 src/main/kotlin/com/jetbrains/plugin/similarity/
 ├── Main.kt                      # CLI entry point
+├── FastSearchCommand.kt         # LSH-based search command
 ├── model/
 │   └── CodeDNA.kt              # Data models
-└── analyzer/
-    ├── ArtifactParser.kt       # ZIP/JAR parsing
-    ├── BytecodeAnalyzer.kt     # ASM-based bytecode analysis
-    └── SimilarityCalculator.kt # Similarity and churn computation
+├── analyzer/
+│   ├── ArtifactParser.kt       # ZIP/JAR parsing
+│   ├── BytecodeAnalyzer.kt     # ASM-based bytecode analysis
+│   └── SimilarityCalculator.kt # Similarity and churn computation
+└── index/
+    ├── LSHIndex.kt             # Locality-Sensitive Hashing index
+    └── MinHash.kt              # MinHash signature generation
 ```
 
 ## Additional Documentation
 
-- [BEHAVIORAL_SIMILARITY.md](BEHAVIORAL_SIMILARITY.md) - Deep dive into bytecode-based behavioral analysis
-- [FUZZY_MODE.md](FUZZY_MODE.md) - Comprehensive fuzzy mode guide with examples and trade-offs
-- [FALSE_POSITIVE_FIXES.md](FALSE_POSITIVE_FIXES.md) - Mitigation strategies for false positive scenarios
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
+- **[BEHAVIORAL_SIMILARITY.md](BEHAVIORAL_SIMILARITY.md)** - Bytecode-based behavioral analysis and false positive mitigation
+- **[FUZZY_MODE.md](FUZZY_MODE.md)** - Semantic normalization guide with test results and trade-offs
+- **[BENCHMARKS.md](BENCHMARKS.md)** - Performance benchmarks and scalability analysis
+- **[TECHNICAL.md](TECHNICAL.md)** - Technical implementation details and algorithms
+- **[examples/EXAMPLES.md](examples/EXAMPLES.md)** - Real-world usage examples
 - Test scenarios and examples in `test-scenarios/`
 
 ## Dependencies

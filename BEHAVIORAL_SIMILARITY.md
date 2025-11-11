@@ -143,12 +143,82 @@ Even with completely different names, if the internal logic is the same (same by
 - **Efficient storage**: Patterns are hashed (fixed size)
 - **Fast comparison**: Uses Jaccard similarity on hash sets
 
+## False Positive Mitigation
+
+To prevent false positives in behavioral similarity detection, several safeguards are implemented:
+
+### 1. Empty/Trivial Method Handling
+
+**Problem:** Empty methods would incorrectly show 100% similarity.
+
+**Solution:** 
+- Empty methods get unique `EMPTY_METHOD` marker
+- Methods with < 3 instructions get `TRIVIAL_METHOD` marker
+- Prevents false matches between different trivial methods
+
+### 2. Complexity Factor Weighting
+
+**Problem:** Simple getters/setters show high similarity despite different purposes.
+
+**Solution:** Behavioral similarity is scaled by method complexity:
+- Methods < 3 instructions: 0.3x weight (very trivial)
+- Methods < 5 instructions: 0.5x weight (trivial)
+- Methods < 10 instructions: 0.7x weight (simple)
+- Methods < 20 instructions: 0.9x weight (moderate)
+- Methods ≥ 20 instructions: 1.0x weight (complex)
+
+```kotlin
+private fun computeComplexityFactor(...): Double {
+    val avgSize = (avgSize1 + avgSize2) / 2
+    return when {
+        avgSize < 3 -> 0.3
+        avgSize < 5 -> 0.5
+        avgSize < 10 -> 0.7
+        avgSize < 20 -> 0.9
+        else -> 1.0
+    }
+}
+```
+
+### 3. Histogram Aggregation Size Penalty
+
+**Problem:** 1 large method vs 10 small methods could have same aggregate histogram.
+
+**Solution:** Apply size disparity penalty:
+```kotlin
+val sizeRatio = min(size1, size2).toDouble() / max(size1, size2).toDouble()
+return cosineSimilarity * sizeRatio
+```
+- Example: 1 method vs 10 methods gets 0.1x penalty
+
+### 4. Boilerplate Filtering
+
+**Problem:** Standard patterns (getters/setters, constructors) inflate similarity.
+
+**Solution:** Filter out common boilerplate before analysis:
+- Simple getters: `ALOAD, GETFIELD, XRETURN`
+- Simple setters: `ALOAD, PUTFIELD, RETURN`
+- Filtered methods don't contribute to behavioral similarity
+
+### 5. Neutral Scoring for No Data
+
+**Problem:** Plugins with all trivial methods (all filtered) would match.
+
+**Solution:** Return 0.5 (neutral) when both plugins have no behavioral data:
+```kotlin
+if (!hasBehavioralData1 && !hasBehavioralData2) {
+    return 0.5  // Neutral: doesn't boost or penalize
+}
+```
+
+These mitigations significantly reduce false positives while maintaining accurate detection of genuine behavioral similarity.
+
 ## Testing
 
 All existing tests pass with updated expectations. New behavioral similarity is automatically included in all fingerprint comparisons.
 
 ```bash
-./gradlew test    # All 35 tests pass
+./gradlew test    # All 34 tests pass
 ./gradlew build   # Build successful
 ```
 
