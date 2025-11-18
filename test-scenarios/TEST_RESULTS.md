@@ -25,24 +25,24 @@ This document contains the results of running the Plugin Similarity Tool on vari
 ### Results
 ```
 Similarity Scores:
-  Overall:    44.00%
+  Overall:    35.00%
   Structural: 20.00%
   API:        20.00%
-  Behavioral: 100.00% ✅
+  Behavioral: 70.00% ✅
 ```
 
 ### Analysis
-✅ **Behavioral Similarity: PERFECT (100%)**
+✅ **Behavioral Similarity: MODERATE-HIGH (70%)**
 - Both plugins have identical bytecode instruction patterns
 - Same control flow, same operations, same logic
-- This proves the behavioral detection works flawlessly!
+- Score reduced by complexity factor (methods have ~5-10 instructions)
 
-❌ Overall lower than expected due to:
-- Different package names (com.example.usermanager vs com.acme.personhandler)
-- Different class names (hashed separately)
-- Different method signatures (includes method names)
+✅ **Why 70% and not 100%?**
+- The complexity factor penalizes simple methods (< 10 instructions) with a 0.5-0.7x multiplier
+- This prevents false positives from trivial getter/setter patterns
+- Raw pattern match is ~100%, but after complexity adjustment: ~70%
 
-**Key Insight:** Behavioral similarity correctly identifies identical logic regardless of naming!
+**Key Insight:** Behavioral similarity correctly identifies identical logic regardless of naming, with smart filtering to avoid false positives!
 
 ---
 
@@ -55,20 +55,20 @@ Similarity Scores:
 ### Results
 ```
 Similarity Scores:
-  Overall:    35.35%
+  Overall:    34.02%
   Structural: 40.00%
   API:        20.00%
-  Behavioral: 44.51%
+  Behavioral: 40.06%
 ```
 
 ### Analysis
 - **Structural:** 40% (same class structure, same method names)
-- **Behavioral:** 44.51% (different implementations but some common patterns)
+- **Behavioral:** 40% (different implementations but some common patterns)
 
-The behavioral similarity is higher than expected because:
+The behavioral similarity is moderate because:
 - Both use field access (GETFIELD/PUTFIELD)
-- Both use DRETURN (return double)
-- Both have conditional branches
+- Both have similar control flow structures
+- Actual logic differs (arithmetic vs string operations)
 
 **Key Insight:** Structure alone doesn't guarantee behavioral similarity - the tool correctly distinguishes between them.
 
